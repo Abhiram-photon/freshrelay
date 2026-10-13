@@ -193,9 +193,9 @@ mutating request once after a `CSRF_FAILED`.
 Vitest + Testcontainers + Playwright were considered and deferred: v1 ships without a
 test suite in-repo, trading automated coverage for shipping scope. Mitigations:
 
-- **Static:** ESLint + `tsc --noEmit` gate every push (CI included).
-- **CI:** dependency install → prisma generate → lint → typecheck → schema push →
-  seed → production build against PostgreSQL 16.
+- **Static:** ESLint + `tsc --noEmit` gate every push.
+- **Build:** every push to `main` runs a full production build on Vercel
+  (install → prisma generate → `next build`) — a broken build fails the deploy loudly.
 - **Behavioural:** the business-rule matrix is enforced as server-side rules
   and was verified end-to-end in a scripted real-browser pass:
 

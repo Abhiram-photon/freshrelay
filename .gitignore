@@ -29,3 +29,13 @@
 *.tsbuildinfo
 next-env.d.ts
 /coverage
+
+# local operator & sandbox files (never commit)
+/worklog.md
+/local-*
+/skills/
+/.zscripts/
+/tool-results/
+/upload/
+/download/
+/agent-ctx/
