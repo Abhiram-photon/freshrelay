@@ -1,0 +1,31 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# database (local dev files)
+/db/*.db
+/db/*.db-journal
+
+# env files
+.env
+.env*.local
+
+# logs & local mail outbox
+*.log
+.mail/
+
+# misc
+.DS_Store
+*.pem
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+/coverage

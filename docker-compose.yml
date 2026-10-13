@@ -1,0 +1,50 @@
+# FreshRelay — local/self-hosted stack
+#
+#   docker compose up --build                     → app on http://localhost:3000
+#   docker compose exec app bun prisma/seed.ts    → load demo data (once)
+#
+# The app container pushes the Prisma schema on boot; PostgreSQL 16 data lives
+# on a named volume. For production on Vercel + Neon see docs/DEPLOYMENT.md.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: freshrelay
+    volumes:
+      - freshrelay-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d freshrelay"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/freshrelay
+      # CHANGE THIS in any shared deployment:
+      APP_SECRET: ${APP_SECRET:-change-me-to-a-long-random-string}
+      KG_PER_MEAL: ${KG_PER_MEAL:-0.4}
+      HOLD_TIMEOUT_MINUTES: ${HOLD_TIMEOUT_MINUTES:-30}
+      DIGEST_MIN_INTERVAL_MINUTES: ${DIGEST_MIN_INTERVAL_MINUTES:-60}
+      EXPIRING_SOON_WINDOW_MINUTES: ${EXPIRING_SOON_WINDOW_MINUTES:-60}
+      FRESHRELAY_DISABLE_WORKER: ${FRESHRELAY_DISABLE_WORKER:-0}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/api/v1/csrf').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  freshrelay-db:

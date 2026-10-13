@@ -1,0 +1,173 @@
+// FreshRelay — Prisma schema (PostgreSQL for Vercel deployment)
+// NOTE: roles/statuses are Strings validated by Zod schemas in src/lib/schemas.ts;
+// allergens are stored as a JSON array string. Geo is modelled as lat/lng float
+// pairs (see docs/DECISIONS.md).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  phone        String?
+  role         String // PROVIDER | RECIPIENT | ADMIN
+  status       String    @default("ACTIVE") // ACTIVE | SUSPENDED
+  notifyNearby Boolean   @default(true)
+  lastDigestAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  organizations        Organization[]
+  sessions             Session[]
+  passwordResetTokens  PasswordResetToken[]
+  notifications        Notification[]
+}
+
+model Organization {
+  id                 String   @id @default(cuid())
+  ownerUserId        String
+  owner              User     @relation(fields: [ownerUserId], references: [id])
+  type               String // BAKERY | GROCERY | CATERER | RESTAURANT | HOUSEHOLD | FOOD_BANK | CHARITY | SHELTER | COMMUNITY_KITCHEN
+  name               String
+  address            String
+  lat                Float
+  lng                Float
+  verificationStatus String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  verificationNote   String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  listings     Listing[]
+  reservations Reservation[] @relation("RecipientReservations")
+
+  @@index([ownerUserId])
+  @@index([verificationStatus])
+  @@index([lat, lng])
+}
+
+model Listing {
+  id                 String   @id @default(cuid())
+  orgId              String
+  org                Organization @relation(fields: [orgId], references: [id])
+  title              String
+  description        String
+  category           String // BAKED_GOODS | PRODUCE | PREPARED_MEALS | DAIRY | PACKAGED_GROCERY | BEVERAGES | OTHER
+  quantityTotal      Float
+  quantityRemaining  Float
+  unit               String // kg | g | litre | item | loaf | portion | tray | box | meal
+  allergensJson      String   @default("[]") // JSON string[] e.g. ["GLUTEN","NUTS"]
+  storageType        String // AMBIENT | CHILLED | FROZEN | HOT
+  pickupAddress      String
+  lat                Float
+  lng                Float
+  windowStart        DateTime
+  windowEnd          DateTime
+  expiresAt          DateTime
+  pickupInstructions String?
+  photoUrl           String?
+  status             String   @default("DRAFT") // DRAFT | ACTIVE | PAUSED | RESERVED_OUT | EXPIRED | CANCELLED | HIDDEN
+  version            Int      @default(0) // optimistic locking
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  reservations Reservation[]
+
+  @@index([status, windowEnd]) // expiry sweep + feed query
+  @@index([orgId])
+  @@index([lat, lng]) // bbox pre-filter (PostGIS GIST equivalent)
+  @@index([category])
+}
+
+model Reservation {
+  id             String    @id @default(cuid())
+  listingId      String
+  listing        Listing   @relation(fields: [listingId], references: [id])
+  recipientOrgId String
+  recipientOrg   Organization @relation("RecipientReservations", fields: [recipientOrgId], references: [id])
+  quantity       Float
+  pickupStart    DateTime
+  pickupEnd      DateTime
+  status         String    @default("CONFIRMED") // HELD | CONFIRMED | COLLECTED | CANCELLED | EXPIRED | LOCKED
+  codeHash       String? // HMAC-SHA256 of the 6-digit pickup code — never the code itself
+  failedAttempts Int       @default(0)
+  holdExpiresAt  DateTime? // used for HELD (unconfirmed) reservations; v1 creates CONFIRMED
+  collectedAt    DateTime?
+  cancelReason   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([listingId])
+  @@index([recipientOrgId])
+  @@index([status, pickupEnd]) // expiry sweep
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  type        String // NEW_NEARBY_LISTING | RESERVATION_CREATED | RESERVATION_CONFIRMED | RESERVATION_CANCELLED | LISTING_EXPIRING_SOON | PICKUP_VERIFIED | ORG_APPROVED | ORG_REJECTED | RESERVATION_LOCKED | ACCOUNT_STATUS
+  payloadJson String    @default("{}")
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+model Job {
+  id          String    @id @default(cuid())
+  type        String // SEND_EMAIL | DIGEST | EXPIRE_LISTINGS | RELEASE_HOLDS | EXPIRE_RESERVATIONS | EXPIRING_SOON_ALERTS
+  payloadJson String    @default("{}")
+  runAt       DateTime  @default(now())
+  status      String    @default("PENDING") // PENDING | RUNNING | DONE | FAILED
+  attempts    Int       @default(0)
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, runAt])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorUserId  String?
+  action       String // e.g. ORG_APPROVED, USER_SUSPENDED, VERIFY_ATTEMPT, LISTING_HIDDEN, ACCOUNT_DELETED
+  entity       String
+  entityId     String?
+  metadataJson String   @default("{}")
+  createdAt    DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([actorUserId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  tokenHash String   @unique // SHA-256 of the cookie token — raw token never stored
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique // SHA-256 of the emailed token
+  expiresAt DateTime // 30 minutes
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
